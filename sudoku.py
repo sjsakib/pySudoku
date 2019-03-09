@@ -1,6 +1,7 @@
 import random
+import copy
 
-N = 2
+N = 3
 
 
 class Cell:
@@ -9,38 +10,42 @@ class Cell:
         self.ans = None
         self.pos = pos
         self.i = pos[0]*N*N + pos[1]
-        # self.solved = False
 
     def __str__(self):
-        return f'{self.ans} {self.possibleAnswers}'
+        return f'({self.ans} {self.possibleAnswers})'
 
     def show(self):
-        return self.ans or f'({self.possibleLen()})'
+        # return self.ans or f'({self.possibleLen()})'
+        return self.ans or 0
 
     def solved(self):
         return self.ans != None
 
     def remove(self, num):
         if num not in self.possibleAnswers:
-            return
+            return False
         self.possibleAnswers.remove(num)
-
-    def setAns(self, num):
-        if num > N*N:
-            raise(ValueError)
-        self.possibleAnswers = [num]
+        if len(self.possibleAnswers) == 1:
+            self.ans = self.possibleAnswers[0]
+            return True
+        return False
 
     def setRandomAns(self):
         x = random.choice(self.possibleAnswers)
-        # print(x, self.possibleAnswers)
         self.ans = x
         return x
 
     def reset(self):
-        self.possibleAnswers = list(range(1, pow(N, 4)+1))
+        self.ans = None
+        self.possibleAnswers = list(range(1, N*N+1))
 
     def possibleLen(self):
         return len(self.possibleAnswers)
+
+    def sameDomain(self, other):
+        p1 = self.pos
+        p2 = other.pos
+        return p1[0] == p2[0] or p1[1] == p2[1] or p1[2] == p2[2]
 
 
 def emptyBoard():
@@ -59,40 +64,41 @@ def printBoard(b):
 
 def genCompleted():
     # unfinished cells
-    cells = list(range(pow(N, 4)))
     board = emptyBoard()
-    while len(cells):
-        mn = min(board[i].possibleLen() for i in cells)
+    cells = board.copy()
+    while cells:
+
+        mn = min(c.possibleLen() for c in cells)
         lowestCells = []
-        for i in cells:
-            if board[i].possibleLen() == mn:
-                lowestCells.append(board[i])
+        for c in cells:
+            if c.possibleLen() == mn:
+                lowestCells.append(c)
         choiceCell = random.choice(lowestCells)
-        cells.remove(choiceCell.i)
+        cells.remove(choiceCell)
         if not choiceCell.solved():
-            x = choiceCell.setRandomAns()
-        else:
-            continue
-        p1 = choiceCell.pos
+            choiceCell.setRandomAns()
+        x = choiceCell.ans
         for c in board:
             if c is choiceCell:
                 continue
-            p2 = c.pos
-            if p1[0] == p2[0] or p1[1] == p2[1] or p1[2] == p2[2]:
+            if choiceCell.sameDomain(c):
                 c.remove(x)
+    if not check(board):
+        return genCompleted()
     return board
 
 
 def check(board):
     for c1 in board:
+        if not c1.solved():
+            return False
         for c2 in board:
             if c1 is c2:
                 continue
-            p1 = c1.pos
-            p2 = c2.pos
-            if (p1[0] == p2[0] or p1[1] == p2[1] or p1[2] == p2[2]) and c1.ans == c2.ans:
+            if c1.sameDomain(c2) and c1.ans == c2.ans:
                 return False
     return True
+
 
 def checkEqual(b1, b2):
     for c in b1:
@@ -101,8 +107,86 @@ def checkEqual(b1, b2):
     return True
 
 
+def solve(board, t=0):
+    if t > 900:
+        return (-1, None)
+    solvedCells = []
+    unsolvedCells = []
+    board_copy = copy.deepcopy(board)
+    guesses = 0
+    for c in board_copy:
+        if c.possibleLen() == 1:
+            solvedCells.append(c)
+        else:
+            unsolvedCells.append(c)
+    # for each solved cells remove it's value from all the unsolved cells in it's domain
+    removed = 0
+    while len(solvedCells) != 0:
+        newlySolved = []
+        for c1 in solvedCells:
+            for c2 in unsolvedCells:
+                if c1.sameDomain(c2):
+                    c2.remove(c1.ans)
+                if c2.possibleLen() == 1:
+                    removed += 1
+                    c2.setRandomAns()
+                    unsolvedCells.remove(c2)
+                    newlySolved.append(c2)
+        solvedCells = newlySolved
+        if solvedCells == [] and unsolvedCells != []:
+            mn = min(c.possibleLen() for c in unsolvedCells)
+            choice = random.choice(
+                list(filter(lambda c: c.possibleLen() == mn, unsolvedCells)))
+            try:
+                choice.setRandomAns()
+            except Exception as e:
+                solve(board, t+1)
+            solvedCells.append(choice)
+            unsolvedCells.remove(choice)
+            guesses += 1
+    if check(board_copy):
+        return (guesses, board_copy)
+    else:
+        return solve(board, t+1)
 
-try:
-    printBoard(genCompleted())
-except:
-    pass
+
+def genPuzzle():
+    board = genCompleted()
+    board_copy = copy.deepcopy(board)
+    cells = board_copy.copy()
+    while cells:
+        choice = random.choice(cells)
+        cells.remove(choice)
+        choice.reset()
+        r0, s0 = solve(board_copy)
+        if r0 == -1:
+            r, solution = solve(board)
+            return r, board, solution
+        elif checkEqual(s0, solve(board_copy)[1]):
+            board[choice.i].reset()
+        else:
+            r, solution = solve(board)
+            return r, board, solution
+
+
+def genPuzzleWithDifficulty(d):
+    while True:
+        r, puzzle, solution = genPuzzle()
+        print('Found puzzle with difficulty: ', r+1)
+        if r == d-1 or (d == 5 and r >= 5):
+            return puzzle, solution
+
+def main():
+    global N
+    N = int(input('Enter value of N (>1): '))
+    d = int(input('Enter difficulty (1-5): '))
+
+    puzzle, solution = genPuzzleWithDifficulty(d)
+    print('Puzzle:')
+    printBoard(puzzle)
+    print('Solution:')
+    printBoard(solution)
+
+if __name__ == '__main__':
+    main()
+    # genCompleted()
